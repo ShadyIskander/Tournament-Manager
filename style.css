@@ -256,7 +256,7 @@ select.in{appearance:none;background-image:linear-gradient(45deg,transparent 50%
 .lgrid.g16{grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--mut);font-family:var(--disp);font-weight:700;font-size:40px;letter-spacing:.1em;text-transform:uppercase;border:2px dashed var(--line);text-align:center;gap:10px}
 .empty small{font-size:22px;font-family:var(--ui);letter-spacing:.04em;text-transform:none}
-.lrow{display:grid;grid-template-columns:128px 70px 1fr;align-items:center;gap:14px;padding:10px 16px;background:#0e1530;border-left:5px solid var(--line2);font-size:24px;min-width:0}
+.lrow{display:grid;grid-template-columns:128px var(--dvw,70px) 1fr;align-items:center;gap:14px;padding:10px 16px;background:#0e1530;border-left:5px solid var(--line2);font-size:24px;min-width:0}
 .lrow+.lrow{margin-top:8px}
 .lrow .tm{font-family:var(--disp);font-weight:800;font-size:25px;color:var(--b2);white-space:nowrap}
 .lrow .dv{font-family:var(--disp);font-weight:900;font-size:22px;background:var(--ga);color:#04120b;text-align:center;transform:skewX(-8deg)}
@@ -282,7 +282,7 @@ select.in{appearance:none;background-image:linear-gradient(45deg,transparent 50%
 
 /* fixtures scene */
 .fx{display:grid;gap:8px 28px;grid-auto-flow:column}
-.frow{display:grid;grid-template-columns:64px 150px 76px 1fr 132px 1fr;align-items:center;gap:12px;padding:0 16px;background:#0e1530;border-left:5px solid var(--line2);min-width:0;font-size:var(--ffs,24px)}
+.frow{display:grid;grid-template-columns:64px 150px var(--dvw,76px) 1fr 132px 1fr;align-items:center;gap:12px;padding:0 16px;background:#0e1530;border-left:5px solid var(--line2);min-width:0;font-size:var(--ffs,24px)}
 .frow.live{border-left-color:var(--red);background:#1a1f48}.frow.done{border-left-color:var(--y)}
 .frow .mn{font-family:var(--disp);font-weight:800;color:var(--mut)}
 .frow .tm{font-family:var(--disp);font-weight:800;color:var(--b2);white-space:nowrap}
@@ -356,3 +356,14 @@ select.in{appearance:none;background-image:linear-gradient(45deg,transparent 50%
   .pgrid,.pgrid.t2{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+
+/* public display: both games side by side */
+.pgt[data-game=both].on{background:var(--y);color:#141000}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:0 34px;height:100%}
+.duo-col{min-width:0;display:flex;flex-direction:column}
+.duo-col+.duo-col{border-left:2px solid var(--line);padding-left:34px}
+.duo-col .ptitle{font-size:38px;margin-bottom:18px;white-space:nowrap}
+.duo-col .ptitle small{font-size:20px;overflow:hidden;text-overflow:ellipsis}
+.duo-col .empty{margin-top:4px}
+.fx.sm .frow{grid-template-columns:50px 98px var(--dvw,70px) 1fr 96px 1fr;gap:8px;padding:0 10px}
+.fx.sm .fh{font-size:22px}

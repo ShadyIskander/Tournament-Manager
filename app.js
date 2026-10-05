@@ -35,6 +35,7 @@ async function initStore() {
       const o = {};
       Object.keys(v).forEach(k => { const cur = S.ts[k]; o[k] = (pending > 0 && cur && (cur.updatedAt || 0) > (v[k].updatedAt || 0)) ? cur : v[k]; });
       if (pending > 0) Object.keys(S.ts).forEach(k => { if (!o[k] && S.ts[k]) o[k] = S.ts[k]; });
+      Object.keys(o).forEach(k => migrate(o[k]));
       Object.keys(tomb).forEach(k => { delete o[k]; });
       const changed = sig(o) !== sig(S.ts) || !S.ready || S.sync !== 'live';
       S.ts = o; S.ready = true; S.sync = 'live'; S.storeMode = 'cloud';
@@ -101,10 +102,15 @@ function nextOf(t, m) {
   const y = t.matches.find(o => (o.srcA.m === m.id && o.srcA.t === 'l') || (o.srcB.m === m.id && o.srcB.t === 'l'));
   return { win: x, lose: y };
 }
+function subLine(t, m, which, id) {
+  const s = [plyr(t, id), sideDevice(t, m, which)].filter(Boolean).join(' · ');
+  return s ? `<small dir="auto">${esc(s)}</small>` : '';
+}
+function dvwStyle(t, small) { return seatsPerMatch(t.game, t.format) > 1 ? '--dvw:' + (small ? 92 : 112) + 'px;' : ''; }
 function progressOf(t) { const d = t.matches.filter(m => m.status === 'done').length; return { d, n: t.matches.length }; }
 function anyT() { return Object.values(S.ts); }
 function tstatus(t) { return t ? tournamentStatus(t) : null; }
-function curGame() { return S.pgame || autoGame(); }
+function curGame() { return S.pgame || 'both'; }
 function autoGame() {
   const l = ['fc27', 'lol'].find(g => S.ts[g] && tstatus(S.ts[g]) === 'live');
   if (l) return l;
@@ -113,7 +119,7 @@ function autoGame() {
 }
 function metaChips(t) {
   const g = G(t.game);
-  return `<span class="chip">${t.size} ${t.format === '2v2' ? 'teams' : 'players'}</span><span class="chip">${t.format === '2v2' ? '2 vs 2' : '1 vs 1'}</span><span class="chip">${t.devices} ${g.deviceName}${t.devices > 1 ? 's' : ''}</span><span class="chip">Starts ${fmtTime(t.startTime, 0)}</span><span class="chip">${t.duration} min / match</span>`;
+  return `<span class="chip">${t.size} ${t.format === '2v2' ? 'teams' : 'players'}</span><span class="chip">${t.format === '2v2' ? '2 vs 2' : '1 vs 1'}</span><span class="chip">${t.devices} ${g.deviceName}${t.devices > 1 ? 's' : ''}</span>${g.perPlayer ? `<span class="chip">1 ${g.deviceName} per player · ${seatsPerMatch(t.game, t.format)} per match</span>` : ''}<span class="chip">Starts ${fmtTime(t.startTime, 0)}</span><span class="chip">${t.duration} min / match</span>`;
 }
 
 /* ---------- render scheduling ---------- */
@@ -194,7 +200,7 @@ function bracketHTML(t, o) {
 }
 
 /* ===================== PUBLIC DISPLAY ===================== */
-const SCENE_DUR = { now: 15, bracket: 20, bracketL: 14, bracketR: 14, fixtures: 15, champion: 22 };
+const SCENE_DUR = { duo: 30, now: 15, bracket: 20, bracketL: 14, bracketR: 14, fixtures: 15, champion: 22 };
 function scenesFor(t) {
   if (!t) return ['splash'];
   const s = tstatus(t);
@@ -203,7 +209,7 @@ function scenesFor(t) {
   if (s === 'completed') return ['champion', ...br, 'fixtures'];
   return ['now', ...br, 'fixtures'];
 }
-const SCENE_NAME = { now: 'Live', bracket: 'Bracket', bracketL: 'Bracket · Upper', bracketR: 'Bracket · Lower', fixtures: 'Fixtures', champion: 'Champion', splash: '' };
+const SCENE_NAME = { duo: 'Both games', now: 'Live', bracket: 'Bracket', bracketL: 'Bracket · Upper', bracketR: 'Bracket · Lower', fixtures: 'Fixtures', champion: 'Champion', splash: '' };
 
 function pmCard(t, m, size, opt) {
   opt = opt || {};
@@ -211,7 +217,7 @@ function pmCard(t, m, size, opt) {
   const side = which => {
     const id = m[which], src = which === 'a' ? m.srcA : m.srcB, sc = which === 'a' ? m.sa : m.sb;
     const e = entrant(t, id), w = m.status === 'done' && m.winner === id, l = m.status === 'done' && m.winner && m.winner !== id;
-    const p = plyr(t, id);
+    const p = [plyr(t, id), sideDevice(t, m, which)].filter(Boolean).join(' · ');
     return `<div class="ps-s ${e ? '' : 'tbd'} ${w ? 'w' : ''} ${l ? 'l' : ''}"><div class="nmw"><span class="nm" dir="auto">${w ? '<span class="wb">👑 </span>' : ''}${esc(nm(t, id, src))}</span>${p ? `<span class="pl" dir="auto">${esc(p)}</span>` : ''}</div>${sc != null ? `<div class="sc">${sc}</div>` : (m.status === 'live' ? '<div class="sc" style="color:var(--dim);font-size:.6em">–</div>' : '')}</div>`;
   };
   const lab = m.status === 'done' ? 'Completed' : m.tie ? 'Draw · decider' : m.status === 'live' ? '● Live' : ready ? 'Up next' : 'Waiting';
@@ -229,7 +235,7 @@ function sceneNow(t) {
     const wall = t.entrants.map((e, i) => `<div class="wn" style="font-size:${fs}px"><small>${i + 1}</small><span dir="auto">${esc(e.name || '—')}</span>${t.format === '2v2' && e.players.some(Boolean) ? `<span class="pl" dir="auto">${esc(e.players.filter(Boolean).join(' · '))}</span>` : ''}</div>`).join('');
     return `<div class="pcols"><div class="pcol"><div class="ptitle">${t.format === '2v2' ? 'Teams' : 'Players'} <small>${cnt} competing</small></div><div class="wall" style="grid-template-columns:repeat(${cols},1fr);grid-auto-rows:min-content">${wall}</div></div>
     <div class="pcol"><div class="ptitle">Kick-off</div><div class="kick" style="margin:6px 0 26px">${fmtTime(t.startTime, 0)}<small>${t.size} ${t.format === '2v2' ? 'TEAMS' : 'PLAYERS'} · ${t.format === '2v2' ? '2V2' : '1V1'}</small></div>
-    <div class="ptitle" style="font-size:32px;margin-bottom:14px">Opening fixtures</div>${first.slice(0, 7).map(m => `<div class="lrow"><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span><span class="tx" dir="auto">${esc(nm(t, m.a, m.srcA))}<span class="vs">VS</span>${esc(nm(t, m.b, m.srcB))}</span></div>`).join('')}${first.length > 7 ? `<div class="more">+ ${first.length - 7} more opening matches</div>` : ''}</div></div>`;
+    <div class="ptitle" style="font-size:32px;margin-bottom:14px">Opening fixtures</div>${first.slice(0, 7).map(m => `<div class="lrow" style="${dvwStyle(t)}"><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span><span class="tx" dir="auto">${esc(nm(t, m.a, m.srcA))}<span class="vs">VS</span>${esc(nm(t, m.b, m.srcB))}</span></div>`).join('')}${first.length > 7 ? `<div class="more">+ ${first.length - 7} more opening matches</div>` : ''}</div></div>`;
   }
   const live = sortedBySlot(t.matches.filter(m => m.status === 'live'));
   const waiting = t.matches.filter(m => m.status === 'upcoming');
@@ -251,7 +257,7 @@ function sceneNow(t) {
     left = `<div class="ptitle">Tournament</div><div class="empty">All matches complete</div>`;
   }
   const upList = next.length ? next : (live.length ? [] : []);
-  const nextRows = upList.slice(0, 6).map(m => `<div class="lrow"><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span><span class="tx" dir="auto">${matchReady(m) ? esc(nm(t, m.a)) + '<span class="vs">VS</span>' + esc(nm(t, m.b)) : '<i>' + esc(nm(t, m.a, m.srcA, true)) + '</i><span class="vs">VS</span><i>' + esc(nm(t, m.b, m.srcB, true)) + '</i>'}</span></div>`).join('');
+  const nextRows = upList.slice(0, 6).map(m => `<div class="lrow" style="${dvwStyle(t)}"><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span><span class="tx" dir="auto">${matchReady(m) ? esc(nm(t, m.a)) + '<span class="vs">VS</span>' + esc(nm(t, m.b)) : '<i>' + esc(nm(t, m.a, m.srcA, true)) + '</i><span class="vs">VS</span><i>' + esc(nm(t, m.b, m.srcB, true)) + '</i>'}</span></div>`).join('');
   const upHtml = upList.length ? `<div class="ptitle" style="font-size:34px;margin-bottom:12px">Up next <small style="font-size:20px">${slotTime(t, minSlot)}</small></div>${nextRows}${upList.length > 6 ? `<div class="more">+ ${upList.length - 6} more</div>` : ''}` : '';
   const resN = upHtml ? 4 : 8;
   const resRows = done.slice(0, resN).map(m => {
@@ -304,7 +310,7 @@ function sceneFixtures(t) {
     <span class="b ${bW ? 'w' : aW ? 'l' : ''} ${m.b ? '' : 't'}" dir="auto">${esc(nm(t, m.b, m.srcB, true))}</span></div>`;
   }).join('');
   const dn = t.matches.filter(m => m.status === 'done').length;
-  return `<div class="ptitle">Fixtures <small>${dn}/${t.matches.length} played</small></div><div class="fx" style="margin-top:20px;--ffs:${fs}px;grid-template-columns:repeat(${colsN},1fr);grid-template-rows:repeat(${perCol},${rowH}px)">${rows}</div>`;
+  return `<div class="ptitle">Fixtures <small>${dn}/${t.matches.length} played</small></div><div class="fx" style="margin-top:20px;--ffs:${fs}px;${dvwStyle(t)}grid-template-columns:repeat(${colsN},1fr);grid-template-rows:repeat(${perCol},${rowH}px)">${rows}</div>`;
 }
 
 function sceneChampion(t) {
@@ -318,30 +324,91 @@ function sceneChampion(t) {
   <div class="pod4">${pod('2ND PLACE', 's2', st.second, '🥈')}${pod('3RD PLACE', 's3', st.third, '🥉')}${pod('4TH PLACE', 's4', st.fourth, '')}</div></div>`;
 }
 
-function renderPublic() {
+/* ----- both games on one screen ----- */
+function fxRow(t, m, rowH) {
+  const aW = m.status === 'done' && m.winner === m.a, bW = m.status === 'done' && m.winner === m.b;
+  return `<div class="frow ${mStatus(m)}" style="height:${rowH}px"><span class="mn">#${m.num}</span><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span>
+    <span class="a ${aW ? 'w' : bW ? 'l' : ''} ${m.a ? '' : 't'}" dir="auto">${esc(nm(t, m.a, m.srcA, true))}</span>
+    <span class="sc ${m.sa == null ? 'up' : ''}">${m.sa != null ? m.sa + ' – ' + m.sb : (m.status === 'live' ? '● LIVE' : 'VS')}</span>
+    <span class="b ${bW ? 'w' : aW ? 'l' : ''} ${m.b ? '' : 't'}" dir="auto">${esc(nm(t, m.b, m.srcB, true))}</span></div>`;
+}
+function duoColumn(g) {
+  const t = S.ts[g], gd = G(g);
+  if (!t) return `<div class="duo-col" data-game="${g}"><div class="ptitle">${gd.icon} ${esc(gd.name)}</div><div class="empty">Not created yet</div></div>`;
+  const stt = tstatus(t), st = standings(t), dn = t.matches.filter(m => m.status === 'done').length;
+  const sub = stt === 'completed' ? '🏆 ' + nm(t, st.first) : stt === 'live' ? dn + '/' + t.matches.length + ' played' : 'starting soon';
+  const LIM = 15, ord = orderMatches(t);
+  const rounds = [...new Set(t.matches.map(m => m.round))].sort((x, y) => x - y);
+  let cur = rounds.find(r => t.matches.some(m => m.round === r && m.status !== 'done'));
+  if (cur == null) cur = rounds[rounds.length - 1];
+  const groups = []; let used = 0;
+  for (const r of rounds.filter(x => x >= cur)) {
+    let ms = ord.filter(m => m.round === r), note = '';
+    if (!groups.length && ms.length > LIM - 1) { // big opening round: live first, then what is coming up
+      const pr = m => m.status === 'live' ? 0 : m.status === 'upcoming' ? 1 : 2;
+      const pick = ms.slice().sort((x, y) => pr(x) - pr(y) || (pr(x) === 2 ? (y.doneAt || 0) - (x.doneAt || 0) : x.slot - y.slot || x.device - y.device)).slice(0, LIM - 1);
+      note = ' · ' + pick.length + ' of ' + ms.length;
+      ms = sortedBySlot(pick);
+    }
+    if (groups.length && used + ms.length + 1 > LIM) break;
+    groups.push({ r, ms, note }); used += ms.length + 1;
+  }
+  const items = [];
+  groups.forEach(gr => { items.push({ h: gr.r, note: gr.note }); gr.ms.forEach(m => items.push({ m })); });
+  const n = items.length, rowH = Math.min(62, Math.floor((790 - (n - 1) * 8) / n));
+  const fs = Math.max(15, Math.min(26, Math.floor(rowH * 0.4)));
+  const rows = items.map(it => it.h !== undefined
+    ? `<div class="fh" style="height:${rowH}px">${esc(roundName(t.size, it.h))}${it.h === Math.log2(t.size) - 1 ? ' · Final & Third Place' : ''}${esc(it.note || '')}</div>`
+    : fxRow(t, it.m, rowH)).join('');
+  return `<div class="duo-col" data-game="${g}"><div class="ptitle">${gd.icon} ${esc(gd.short)} <small dir="auto">${esc(sub)}</small></div>
+    <div class="fx sm" style="--ffs:${fs}px;${dvwStyle(t, true)}grid-template-columns:1fr;grid-template-rows:repeat(${n},${rowH}px)">${rows}</div></div>`;
+}
+function sceneDuo() { return `<div class="duo">${duoColumn('fc27')}${duoColumn('lol')}</div>`; }
+
+function bothScenes() {
+  const out = ['duo'];
+  ['fc27', 'lol'].forEach(g => { const t = S.ts[g]; if (!t) return; scenesFor(t).forEach(s => { if (s !== 'now' && s !== 'fixtures') out.push(g + '/' + s); }); });
+  return out;
+}
+function pubCtx() {
   const gm = curGame();
-  const t = S.ts[gm];
-  const gdef = G(gm);
-  const scenes = scenesFor(t);
+  if (gm === 'both') return { gm, scenes: bothScenes() };
+  return { gm, scenes: scenesFor(S.ts[gm]) };
+}
+function sceneKey(s) { return String(s || '').split('/').pop(); }
+function sceneLabel(s) { return String(s).includes('/') ? G(s.split('/')[0]).short + ' · ' + SCENE_NAME[sceneKey(s)] : SCENE_NAME[s]; }
+function sceneBody(t, k) {
+  if (k === 'now') return sceneNow(t);
+  if (k === 'bracket') return sceneBracket(t);
+  if (k === 'bracketL') return sceneBracket(t, 'L');
+  if (k === 'bracketR') return sceneBracket(t, 'R');
+  if (k === 'fixtures') return sceneFixtures(t);
+  if (k === 'champion') return sceneChampion(t);
+  return '';
+}
+
+function renderPublic() {
+  const { gm, scenes } = pubCtx();
   if (!S.scene || !scenes.includes(S.scene)) { S.scene = scenes[0]; S.sceneAt = Date.now(); }
   const changed = S.lastScene !== gm + ':' + S.scene;
   S.lastScene = gm + ':' + S.scene;
-  const stt = t ? tstatus(t) : null;
-  const tabs = ['fc27', 'lol'].map(g => `<button class="pgt ${g === gm ? 'on' : ''} ${S.ts[g] ? '' : 'off'}" data-act="pgame" data-id="${g}" data-game="${g}"><span>${G(g).icon}</span>${esc(G(g).name)}</button>`).join('');
+  const both = gm === 'both', sg = both ? (S.scene.includes('/') ? S.scene.split('/')[0] : null) : gm; // game the visible scene belongs to
+  const t = sg ? S.ts[sg] : null;
+  const duo = both && !sg;
+  const all = ['fc27', 'lol'].map(g => S.ts[g]).filter(Boolean);
+  const stt = duo ? (all.length ? (all.some(x => tstatus(x) === 'live') ? 'live' : all.every(x => tstatus(x) === 'completed') ? 'completed' : 'setup') : null) : (t ? tstatus(t) : null);
+  const tabs = [['both', '⊞', 'Both'], ['fc27', G('fc27').icon, G('fc27').name], ['lol', G('lol').icon, G('lol').name]].map(([g, ic, label]) =>
+    `<button class="pgt ${g === gm ? 'on' : ''} ${g !== 'both' && !S.ts[g] ? 'off' : ''}" data-act="pgame" data-id="${g}" data-game="${g}"><span>${ic}</span>${esc(label)}</button>`).join('');
   let body = '';
-  if (!t) {
-    body = `<div class="splash"><div class="logo"></div><h2>Tournament coming soon</h2><p>${esc(gdef.name)} bracket will appear here</p></div>`;
-  } else if (S.scene === 'now') body = sceneNow(t);
-  else if (S.scene === 'bracket') body = sceneBracket(t);
-  else if (S.scene === 'bracketL') body = sceneBracket(t, 'L');
-  else if (S.scene === 'bracketR') body = sceneBracket(t, 'R');
-  else if (S.scene === 'fixtures') body = sceneFixtures(t);
-  else if (S.scene === 'champion') body = sceneChampion(t);
-  const pills = scenes.filter(s => s !== 'splash').map(s => `<button class="pill ${s === S.scene ? 'on' : ''}" data-act="pscene" data-id="${s}">${SCENE_NAME[s]}<span class="pg" data-pg="${s}"></span></button>`).join('');
+  if (duo) body = sceneDuo();
+  else if (!t) body = `<div class="splash"><div class="logo"></div><h2>Tournament coming soon</h2><p>${esc(G(sg).name)} bracket will appear here</p></div>`;
+  else body = sceneBody(t, sceneKey(S.scene));
+  const pills = scenes.filter(s => s !== 'splash').map(s => `<button class="pill ${s === S.scene ? 'on' : ''}" data-act="pscene" data-id="${s}">${esc(sceneLabel(s))}<span class="pg" data-pg="${s}"></span></button>`).join('');
   const sLab = stt === 'live' ? '<span class="dot"></span>&nbsp;LIVE' : stt === 'completed' ? '🏆 COMPLETE' : 'STARTING SOON';
-  const sub = t ? `${t.size} ${t.format === '2v2' ? 'teams' : 'players'} · ${t.format === '2v2' ? '2 vs 2' : '1 vs 1'} · single elimination` : 'No tournament yet';
-  $('#app').innerHTML = `<div class="pwrap ${S.idle ? 'idle' : ''}" data-game="${gm}"><div class="stage" id="stage">
-    <div class="ph"><div class="logo"></div><div class="gt">${tabs}</div><div class="meta"><div class="l1">${t ? `<span class="status ${stt}"><span>${sLab}</span></span>` : ''}<span class="clock" id="clock">${clockStr()}</span></div><small>${esc(sub)}</small></div></div>
+  const sub = duo ? (all.length ? all.map(x => G(x.game).short).join(' + ') + ' · single elimination' : 'No tournaments yet')
+    : t ? `${t.size} ${t.format === '2v2' ? 'teams' : 'players'} · ${t.format === '2v2' ? '2 vs 2' : '1 vs 1'} · single elimination` : 'No tournament yet';
+  $('#app').innerHTML = `<div class="pwrap ${S.idle ? 'idle' : ''}" data-game="${sg || ''}"><div class="stage" id="stage">
+    <div class="ph"><div class="logo"></div><div class="gt">${tabs}</div><div class="meta"><div class="l1">${stt ? `<span class="status ${stt}"><span>${sLab}</span></span>` : ''}<span class="clock" id="clock">${clockStr()}</span></div><small>${esc(sub)}</small></div></div>
     <div class="pmain"><div class="scene ${changed ? 'enter' : ''}">${body}</div></div>
     <div class="pf"><div class="ctl" style="display:flex;gap:10px">${pills}</div><div class="sp"></div><span class="hint ctl">${S.pinned ? 'PINNED' : S.auto ? 'AUTO' : 'PAUSED'} · space = pause · F = fullscreen</span>
     <button class="pill ctl" data-act="ptoggle">${S.auto && !S.pinned ? '⏸' : '▶'}</button><button class="pill ctl" data-act="fullscreen">⛶</button><button class="pill ctl" data-act="home">✕</button></div>
@@ -362,8 +429,8 @@ window.addEventListener('resize', fitStage);
 setInterval(() => {
   if (S.mode !== 'public') return;
   const c = $('#clock'); if (c) c.textContent = clockStr();
-  const gm = curGame(), t = S.ts[gm], scenes = scenesFor(t);
-  const dur = (SCENE_DUR[S.scene] || 15) * 1000, el = Date.now() - S.sceneAt;
+  const scenes = pubCtx().scenes;
+  const dur = (SCENE_DUR[sceneKey(S.scene)] || 15) * 1000, el = Date.now() - S.sceneAt;
   const bar = $('[data-pg="' + S.scene + '"]'); if (bar) bar.style.width = (S.auto && !S.pinned ? Math.min(100, el / dur * 100) : 0) + '%';
   if (S.auto && !S.pinned && scenes.length > 1 && el >= dur) {
     S.scene = scenes[(scenes.indexOf(S.scene) + 1) % scenes.length]; S.sceneAt = Date.now(); schedule();
@@ -377,7 +444,7 @@ window.addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); ACT.ptoggle(); }
   else if (e.key.toLowerCase() === 'f') ACT.fullscreen();
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-    const gm = curGame(), sc = scenesFor(S.ts[gm]); const i = sc.indexOf(S.scene);
+    const sc = pubCtx().scenes; const i = sc.indexOf(S.scene);
     S.scene = sc[(i + (e.key === 'ArrowRight' ? 1 : sc.length - 1)) % sc.length]; S.sceneAt = Date.now(); schedule();
   }
 });
@@ -415,7 +482,7 @@ function sel(id, opts, val, chg, key) {
 }
 function formFields(f, prefix, chg, locked) {
   const g = G(f.game);
-  const devOpts = g.deviceOptions.map(n => [n, n + ' ' + g.deviceName + (n > 1 ? 's' : '')]);
+  const devOpts = deviceOptionsFor(f.game, f.format).map(n => [n, n + ' ' + g.deviceName + (n > 1 ? 's' : '') + (g.perPlayer ? ` (${n / seatsPerMatch(f.game, f.format)} matches at a time)` : '')]);
   return `<div class="form">
    ${prefix === 'cf' ? `<label class="f">Game${sel(prefix + '-game', [['fc27', '🎮 FC 27'], ['lol', '🖥️ League of Legends']], f.game, chg, prefix + 'game')}</label>` : ''}
    <label class="f">${f.format === '2v2' ? 'Teams' : 'Players'}${locked ? '' : ''}${sel(prefix + '-size', SIZES.map(n => [n, n + (f.format === '2v2' ? ' teams' : ' players')]), f.size, chg, prefix + 'size').replace('<select', locked ? '<select disabled' : '<select')}</label>
@@ -473,7 +540,7 @@ function tabParticipants(t, s) {
 function tabSchedule(t, s) {
   const bad = scheduleConflicts(t), nSlots = slotCount(t);
   const slotOpts = Array.from({ length: nSlots + 3 }, (_, i) => [i, `${slotTime(t, i)} · slot ${i + 1}`]);
-  const devOpts = Array.from({ length: t.devices }, (_, i) => [i + 1, deviceLabel(t, i + 1)]);
+  const devOpts = Array.from({ length: stationCount(t) }, (_, i) => [i + 1, deviceLabel(t, i + 1)]);
   const bySlot = {};
   t.matches.forEach(m => { (bySlot[m.slot] = bySlot[m.slot] || []).push(m); });
   const cur = Math.min(...t.matches.filter(m => m.status !== 'done').map(m => m.slot), 999);
@@ -485,8 +552,8 @@ function tabSchedule(t, s) {
       <div class="mm"><b dir="auto">${esc(nm(t, m.a, m.srcA))}<span class="vs">vs</span>${esc(nm(t, m.b, m.srcB))}</b><small>Match ${m.num} · ${esc(mRound(t, m))} · ${statusLabel(m, matchReady(m))}${m.sa != null ? ` · ${m.sa}–${m.sb}` : ''}</small></div>
       <div class="mv">${m.status === 'done' ? '' : `${sel('', slotOpts, m.slot, 'moveSlot', 'ms' + m.id).replace('<select', `<select data-id="${m.id}"`)}${sel('', devOpts, m.device, 'moveDev', 'md' + m.id).replace('<select', `<select data-id="${m.id}"`)}`}</div></div>`).join('')}</div>`;
   }).join('');
-  return `<div class="panel" style="margin-top:0"><div class="row" style="margin-bottom:16px"><h2 style="margin:0">Schedule</h2><span class="chip">${t.devices} ${G(t.game).deviceName}${t.devices > 1 ? 's' : ''} reused every slot</span><span class="chip">${nSlots} time slots</span>${bad.size ? '<span class="warn">⚠ device clash highlighted in red</span>' : ''}<span class="sp"></span><button class="btn sm" data-act="regen">Regenerate schedule</button></div>
-  <div class="muted small" style="margin-bottom:14px">Each ${G(t.game).deviceName} plays one match per slot. Later rounds start only after the previous round's slots. Use the dropdowns to move a match to another time or device.</div>
+  return `<div class="panel" style="margin-top:0"><div class="row" style="margin-bottom:16px"><h2 style="margin:0">Schedule</h2><span class="chip">${t.devices} ${G(t.game).deviceName}${t.devices > 1 ? 's' : ''} reused every slot</span>${G(t.game).perPlayer ? `<span class="chip">${seatsPerMatch(t.game, t.format)} PCs per match · ${stationCount(t)} matches at a time</span>` : ''}<span class="chip">${nSlots} time slots</span>${bad.size ? '<span class="warn">⚠ device clash highlighted in red</span>' : ''}<span class="sp"></span><button class="btn sm" data-act="regen">Regenerate schedule</button></div>
+  <div class="muted small" style="margin-bottom:14px">${G(t.game).perPlayer ? `Every player gets their own PC, so each match uses ${seatsPerMatch(t.game, t.format)} PCs.` : `Each ${G(t.game).deviceName} plays one match per slot.`} Later rounds start only after the previous round's slots. Use the dropdowns to move a match to another time or device.</div>
   <div class="slots">${cards}</div></div>`;
 }
 
@@ -521,11 +588,11 @@ function entryCard(t, m) {
   const head = `<div class="eh" data-game="${t.game}"><b>MATCH ${m.num}</b><span class="chip">${esc(mRound(t, m))}</span><span class="chip">${slotTime(t, m.slot)}</span><span class="dev" style="padding:0 10px;font-size:15px">${deviceLabel(t, m.device)}</span><span class="sp"></span><span class="chip ${done ? 'done' : m.status === 'live' ? 'live' : ''}">${statusLabel(m, ready)}</span></div>`;
   const who = (which) => {
     const id = m[which], src = which === 'a' ? m.srcA : m.srcB, e = entrant(t, id);
-    return `<div class="who"><b dir="auto" class="${e ? '' : 'tbd'}">${esc(nm(t, id, src))}</b>${plyr(t, id) ? `<small dir="auto">${esc(plyr(t, id))}</small>` : ''}</div>`;
+    return `<div class="who"><b dir="auto" class="${e ? '' : 'tbd'}">${esc(nm(t, id, src))}</b>${subLine(t, m, which, id)}</div>`;
   };
   if (done && !editing) {
     const wa = m.winner === m.a;
-    const row = (id, w, sc, isWin) => `<div class="erow ${isWin ? 'w' : 'l'}"><div class="who"><b dir="auto">${isWin ? '<span class="tag">WINNER</span>' : ''}${esc(nm(t, id))}</b>${plyr(t, id) ? `<small dir="auto">${esc(plyr(t, id))}</small>` : ''}</div><div class="big">${sc}</div></div>`;
+    const row = (id, w, sc, isWin) => `<div class="erow ${isWin ? 'w' : 'l'}"><div class="who"><b dir="auto">${isWin ? '<span class="tag">WINNER</span>' : ''}${esc(nm(t, id))}</b>${subLine(t, m, id === m.a ? 'a' : 'b', id)}</div><div class="big">${sc}</div></div>`;
     const advTxt = m.kind === 'third' ? '🥉 Third place' : (nx.win ? `▸ ${esc(nm(t, m.winner))} advances to ${roundName(t.size, nx.win.round)} (Match ${nx.win.num})` : '🏆 Tournament champion');
     return `<div class="ec done">${head}<div class="eb">${row(m.winner, true, wa ? m.sa : m.sb, true)}${row(m.loser, false, wa ? m.sb : m.sa, false)}
       <div class="adv">${advTxt}${m.decider ? ' · decided by tie-break' : ''}</div><div class="acts"><button class="btn sm" data-act="editMatch" data-id="${m.id}">Edit result</button></div></div></div>`;
@@ -673,9 +740,9 @@ const ACT = {
   cform(el) {
     const f = S.form, k = el.id.replace('cf-', '');
     if (k === 'game') { f.game = el.value; f.devices = G(f.game).defaultDevices; S.agame = f.game; }
-    else if (k === 'size') f.size = +el.value; else if (k === 'format') f.format = el.value; else if (k === 'devices') f.devices = +el.value; else if (k === 'start') f.start = el.value; else if (k === 'dur') f.dur = +el.value;
+    else if (k === 'size') f.size = +el.value; else if (k === 'format') { f.format = el.value; f.devices = fitDevices(f.game, f.format, f.devices); } else if (k === 'devices') f.devices = +el.value; else if (k === 'start') f.start = el.value; else if (k === 'dur') f.dur = +el.value;
   },
-  sform(el) { const k = el.id.replace('sf-', ''); S.sform[k] = (el.type === 'number' || k === 'size' || k === 'devices') ? +el.value : el.value; },
+  sform(el) { const k = el.id.replace('sf-', ''); S.sform[k] = (el.type === 'number' || k === 'size' || k === 'devices') ? +el.value : el.value; if (k === 'format') S.sform.devices = fitDevices(S.sform.game, S.sform.format, S.sform.devices); },
   async saveSettings() {
     const t = S.ts[S.agame], f = S.sform; if (!f) return;
     const structural = f.size !== t.size || f.format !== t.format || f.devices !== t.devices;

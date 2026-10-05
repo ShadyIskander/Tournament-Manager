@@ -2,8 +2,28 @@
 const SIZES = [4, 16, 32, 64];
 const GAMES = {
   fc27: { id: 'fc27', name: 'FC 27', short: 'FC 27', icon: '🎮', deviceType: 'PS', deviceName: 'PlayStation', deviceOptions: [1, 2, 3, 4, 5, 6], defaultDevices: 4 },
-  lol:  { id: 'lol',  name: 'League of Legends', short: 'LoL', icon: '🖥️', deviceType: 'PC', deviceName: 'PC', deviceOptions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], defaultDevices: 16 }
+  lol:  { id: 'lol',  name: 'League of Legends', short: 'LoL', icon: '🖥️', deviceType: 'PC', deviceName: 'PC', deviceOptions: [2, 4, 6, 8, 10, 12, 14, 16], defaultDevices: 16, perPlayer: true }
 };
+
+/* League of Legends: every player sits at their own PC, so one match occupies 2 PCs (1v1) or 4 PCs (2v2).
+   m.device is the "station" = the group of PCs a match plays on; stationCount = how many matches can run at once. */
+function seatsPerMatch(game, format) { return GAMES[game].perPlayer ? (format === '2v2' ? 4 : 2) : 1; }
+function stationCount(t) { return Math.max(1, Math.floor(t.devices / seatsPerMatch(t.game, t.format))); }
+function deviceOptionsFor(game, format) {
+  const k = seatsPerMatch(game, format);
+  const o = GAMES[game].deviceOptions.filter(n => n >= k && n % k === 0);
+  return o.length ? o : [k];
+}
+function fitDevices(game, format, n) {
+  const o = deviceOptionsFor(game, format), le = o.filter(x => x <= n);
+  return le.length ? le[le.length - 1] : o[0];
+}
+/* Which PC(s) one side of a match sits at (LoL only) */
+function sideDevice(t, m, which) {
+  if (!GAMES[t.game].perPlayer) return '';
+  const per = t.format === '2v2' ? 2 : 1, start = (m.device - 1) * per * 2 + 1 + (which === 'b' ? per : 0);
+  return GAMES[t.game].deviceType + ' ' + start + (per === 1 ? '' : '–' + (start + per - 1));
+}
 
 function roundName(size, r) {
   const totalRounds = Math.log2(size);
@@ -57,8 +77,8 @@ function numberMatches(t) {
 function newTournament(opts) {
   const g = GAMES[opts.game];
   const t = {
-    v: 1, id: opts.game, game: opts.game, size: opts.size, format: opts.format,
-    devices: opts.devices || g.defaultDevices, startTime: opts.startTime || '10:00', duration: opts.duration || 30,
+    v: 2, id: opts.game, game: opts.game, size: opts.size, format: opts.format,
+    devices: fitDevices(opts.game, opts.format, opts.devices || g.defaultDevices), startTime: opts.startTime || '10:00', duration: opts.duration || 30,
     started: false, createdAt: Date.now(), updatedAt: Date.now(),
     entrants: blankEntrants(opts.size, opts.format),
     matches: buildMatches(opts.size)
@@ -168,7 +188,7 @@ function impactOf(t, matchId, sa, sb) {
 /* Schedule: matches grouped into time slots by device count. Devices are reused every slot.
    Rounds never overlap; third place plays first, the Final gets its own closing slot. */
 function buildSchedule(t) {
-  const D = t.devices;
+  const D = stationCount(t);
   const ordered = orderMatches(t);
   const R = Math.log2(t.size);
   let slot = 0;
@@ -197,7 +217,12 @@ function fmtTime(startTime, addMinutes) {
   return h12 + ':' + String(mm).padStart(2, '0') + ' ' + ap;
 }
 function slotTime(t, slot) { return fmtTime(t.startTime, slot * t.duration); }
-function deviceLabel(t, n) { return GAMES[t.game].deviceType + ' ' + n; }
+function deviceLabel(t, n) {
+  const k = seatsPerMatch(t.game, t.format), type = GAMES[t.game].deviceType;
+  if (k === 1) return type + ' ' + n;
+  const a = (n - 1) * k + 1, b = n * k;
+  return type + ' ' + a + (k === 2 ? '+' : '–') + b;
+}
 
 /* Scheduling problems (two matches on one device in one slot, over capacity) */
 function scheduleConflicts(t) {
@@ -205,7 +230,7 @@ function scheduleConflicts(t) {
   t.matches.forEach(m => {
     const k = m.slot + ':' + m.device;
     if (seen[k]) { bad.add(m.id); bad.add(seen[k]); } else seen[k] = m.id;
-    if (m.device > t.devices) bad.add(m.id);
+    if (m.device > stationCount(t)) bad.add(m.id);
   });
   return bad;
 }
@@ -265,7 +290,7 @@ function shuffleEntrants(t) {
 /* Change structural settings before the tournament starts, keeping entered names where possible. */
 function rebuild(t, opts) {
   const old = t.entrants;
-  t.size = opts.size; t.format = opts.format; t.devices = opts.devices;
+  t.size = opts.size; t.format = opts.format; t.devices = fitDevices(t.game, opts.format, opts.devices);
   t.entrants = blankEntrants(t.size, t.format);
   old.slice(0, t.size).forEach((e, i) => {
     t.entrants[i].name = e.name;
@@ -273,6 +298,15 @@ function rebuild(t, opts) {
   });
   t.matches = buildMatches(t.size);
   numberMatches(t); buildSchedule(t); resolve(t);
+  return t;
+}
+
+/* Older saved LoL tournaments gave each match a single PC. Re-plan the ones that haven't started for 2 PCs per match. */
+function migrate(t) {
+  if (t && (t.v || 1) < 2) {
+    t.v = 2;
+    if (GAMES[t.game] && GAMES[t.game].perPlayer && !t.started) { t.devices = fitDevices(t.game, t.format, t.devices); buildSchedule(t); }
+  }
   return t;
 }
 
@@ -322,4 +356,4 @@ function randomRound(t, rng) {
   return wave.length;
 }
 
-if (typeof module !== 'undefined') module.exports = { autoStart, SIZES, GAMES, roundName, newTournament, buildMatches, buildSchedule, resolve, saveResult, resolveTie, reopenMatch, startMatch, impactOf, standings, tournamentStatus, scheduleConflicts, slotCount, slotTime, fillSample, applyPaste, randomRound, rebuild, byId, orderMatches, matchReady, missingNames, shuffleEntrants, fmtTime, entrant, displayName };
+if (typeof module !== 'undefined') module.exports = { seatsPerMatch, stationCount, deviceOptionsFor, fitDevices, sideDevice, deviceLabel, migrate, autoStart, SIZES, GAMES, roundName, newTournament, buildMatches, buildSchedule, resolve, saveResult, resolveTie, reopenMatch, startMatch, impactOf, standings, tournamentStatus, scheduleConflicts, slotCount, slotTime, fillSample, applyPaste, randomRound, rebuild, byId, orderMatches, matchReady, missingNames, shuffleEntrants, fmtTime, entrant, displayName };
