@@ -21,37 +21,34 @@ let pending = 0, saveQ = Promise.resolve();
 const tomb = {};
 
 async function initStore() {
-  try {
-    if (window.claude && typeof window.claude.use === 'function') {
-      const db = await window.claude.use('db');
-      if (db) {
-        let user = null; try { user = await window.claude.use('user'); } catch (e) {}
-        if (user && typeof user.canEdit === 'function') S.canWrite = !!user.canEdit();
-        store.save = (id, data) => db.doc('tournaments/' + id).set(data);
-        store.remove = id => db.doc('tournaments/' + id).delete();
-        db.collection('tournaments').onSnapshot(snap => {
-          const o = {};
-          snap.docs.forEach(d => {
-            const v = d.data(); if (!v) return;
-            const cur = S.ts[d.id];
-            if (pending > 0 && cur && (cur.updatedAt || 0) > (v.updatedAt || 0)) o[d.id] = cur; else o[d.id] = v;
-          });
-          if (pending > 0) Object.keys(S.ts).forEach(k => { if (!o[k] && S.ts[k]) o[k] = S.ts[k]; });
-          Object.keys(tomb).forEach(k => { delete o[k]; });
-          S.ts = o; S.ready = true; S.sync = 'live'; S.storeMode = 'cloud'; schedule();
-        }, () => { S.sync = 'error'; schedule(); });
-        return;
-      }
+  const KEY = 'e7s-key';
+  async function api(method, id, body) {
+    let key = localStorage.getItem(KEY) || '';
+    if (method !== 'GET' && !key) { key = prompt('Admin password') || ''; if (key) localStorage.setItem(KEY, key); }
+    const r = await fetch('/api/db' + (id ? '?id=' + id : ''), { method, headers: { 'Content-Type': 'application/json', 'x-admin-key': key }, body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) { localStorage.removeItem(KEY); throw new Error('Wrong admin password'); }
+    if (!r.ok) throw new Error('Server error ' + r.status);
+    return r.json();
+  }
+  store.save = (id, data) => api('POST', id, data);
+  store.remove = id => api('DELETE', id);
+  const sig = x => Object.keys(x).sort().map(k => k + ':' + x[k].updatedAt).join();
+  const pull = async () => {
+    try {
+      const v = await api('GET');
+      const o = {};
+      Object.keys(v).forEach(k => { const cur = S.ts[k]; o[k] = (pending > 0 && cur && (cur.updatedAt || 0) > (v[k].updatedAt || 0)) ? cur : v[k]; });
+      if (pending > 0) Object.keys(S.ts).forEach(k => { if (!o[k] && S.ts[k]) o[k] = S.ts[k]; });
+      Object.keys(tomb).forEach(k => { delete o[k]; });
+      const changed = sig(o) !== sig(S.ts) || !S.ready || S.sync !== 'live';
+      S.ts = o; S.ready = true; S.sync = 'live'; S.storeMode = 'cloud';
+      if (changed) schedule();
+    } catch (e) {
+      if (S.sync !== 'error' || !S.ready) { S.sync = 'error'; S.ready = true; schedule(); }
     }
-  } catch (e) { console.warn('db unavailable', e); }
-  /* fallback: this browser only (cross-tab sync through the storage event) */
-  S.storeMode = 'local'; S.sync = 'local'; S.ready = true;
-  const load = () => { const o = {}; ['fc27', 'lol'].forEach(g => { try { const v = localStorage.getItem('e7s:' + g); if (v) o[g] = JSON.parse(v); } catch (e) {} }); S.ts = o; };
-  load();
-  store.save = async (id, data) => { try { localStorage.setItem('e7s:' + id, JSON.stringify(data)); } catch (e) {} };
-  store.remove = async id => { try { localStorage.removeItem('e7s:' + id); } catch (e) {} };
-  window.addEventListener('storage', () => { load(); schedule(); });
-  schedule();
+  };
+  await pull();
+  setInterval(pull, 3000);
 }
 
 function commit(t) {

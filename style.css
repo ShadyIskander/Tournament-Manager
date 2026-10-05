@@ -4,7 +4,7 @@
   --y:#ffcd00;--y2:#ffe066;--b:#00aae8;--b2:#4fd0ff;--red:#ff3d5a;--grn:#2cf08a;--ga:#2cf08a;
   --disp:'Big Shoulders Display','Cairo','Impact',sans-serif;
   --ui:'Chakra Petch','Cairo','Segoe UI',system-ui,sans-serif;
-  --logo:url(data:image/png;base64,__LOGO__);
+  --logo:url(logo.png);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -20,7 +20,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
   -webkit-mask-image:radial-gradient(ellipse at 50% 30%,#000 20%,transparent 75%);mask-image:radial-gradient(ellipse at 50% 30%,#000 20%,transparent 75%)}
 button,input,select,textarea{font:inherit;color:inherit}
 [data-game=fc27]{--ga:#2cf08a}[data-game=lol]{--ga:#13d6c4}
-.logo{background:var(--logo) center/contain no-repeat;aspect-ratio:900/680;display:block;flex:none}
+.logo{background:var(--logo) center/contain no-repeat;aspect-ratio:900/686;display:block;flex:none}
 [dir=auto],.nm{unicode-bidi:plaintext}
 .hide{display:none!important}
 
