@@ -209,7 +209,7 @@ function scenesFor(t) {
   if (s === 'completed') return ['champion', ...br, 'fixtures'];
   return ['now', ...br, 'fixtures'];
 }
-const SCENE_NAME = { duo: 'Both games', now: 'Live', bracket: 'Bracket', bracketL: 'Bracket · Upper', bracketR: 'Bracket · Lower', fixtures: 'Fixtures', champion: 'Champion', splash: '' };
+const SCENE_NAME = { duo: 'Both brackets', now: 'Live', bracket: 'Bracket', bracketL: 'Bracket · Upper', bracketR: 'Bracket · Lower', fixtures: 'Fixtures', champion: 'Champion', splash: '' };
 
 function pmCard(t, m, size, opt) {
   opt = opt || {};
@@ -325,49 +325,22 @@ function sceneChampion(t) {
 }
 
 /* ----- both games on one screen ----- */
-function fxRow(t, m, rowH) {
-  const aW = m.status === 'done' && m.winner === m.a, bW = m.status === 'done' && m.winner === m.b;
-  return `<div class="frow ${mStatus(m)}" style="height:${rowH}px"><span class="mn">#${m.num}</span><span class="tm">${slotTime(t, m.slot)}</span><span class="dv">${deviceLabel(t, m.device)}</span>
-    <span class="a ${aW ? 'w' : bW ? 'l' : ''} ${m.a ? '' : 't'}" dir="auto">${esc(nm(t, m.a, m.srcA, true))}</span>
-    <span class="sc ${m.sa == null ? 'up' : ''}">${m.sa != null ? m.sa + ' – ' + m.sb : (m.status === 'live' ? '● LIVE' : 'VS')}</span>
-    <span class="b ${bW ? 'w' : aW ? 'l' : ''} ${m.b ? '' : 't'}" dir="auto">${esc(nm(t, m.b, m.srcB, true))}</span></div>`;
-}
 function duoColumn(g) {
   const t = S.ts[g], gd = G(g);
   if (!t) return `<div class="duo-col" data-game="${g}"><div class="ptitle">${gd.icon} ${esc(gd.name)}</div><div class="empty">Not created yet</div></div>`;
   const stt = tstatus(t), st = standings(t), dn = t.matches.filter(m => m.status === 'done').length;
   const sub = stt === 'completed' ? '🏆 ' + nm(t, st.first) : stt === 'live' ? dn + '/' + t.matches.length + ' played' : 'starting soon';
-  const LIM = 15, ord = orderMatches(t);
-  const rounds = [...new Set(t.matches.map(m => m.round))].sort((x, y) => x - y);
-  let cur = rounds.find(r => t.matches.some(m => m.round === r && m.status !== 'done'));
-  if (cur == null) cur = rounds[rounds.length - 1];
-  const groups = []; let used = 0;
-  for (const r of rounds.filter(x => x >= cur)) {
-    let ms = ord.filter(m => m.round === r), note = '';
-    if (!groups.length && ms.length > LIM - 1) { // big opening round: live first, then what is coming up
-      const pr = m => m.status === 'live' ? 0 : m.status === 'upcoming' ? 1 : 2;
-      const pick = ms.slice().sort((x, y) => pr(x) - pr(y) || (pr(x) === 2 ? (y.doneAt || 0) - (x.doneAt || 0) : x.slot - y.slot || x.device - y.device)).slice(0, LIM - 1);
-      note = ' · ' + pick.length + ' of ' + ms.length;
-      ms = sortedBySlot(pick);
-    }
-    if (groups.length && used + ms.length + 1 > LIM) break;
-    groups.push({ r, ms, note }); used += ms.length + 1;
-  }
-  const items = [];
-  groups.forEach(gr => { items.push({ h: gr.r, note: gr.note }); gr.ms.forEach(m => items.push({ m })); });
-  const n = items.length, rowH = Math.min(62, Math.floor((790 - (n - 1) * 8) / n));
-  const fs = Math.max(15, Math.min(26, Math.floor(rowH * 0.4)));
-  const rows = items.map(it => it.h !== undefined
-    ? `<div class="fh" style="height:${rowH}px">${esc(roundName(t.size, it.h))}${it.h === Math.log2(t.size) - 1 ? ' · Final & Third Place' : ''}${esc(it.note || '')}</div>`
-    : fxRow(t, it.m, rowH)).join('');
+  // draw the bracket at a comfortable natural width, then scale it down to fit half the screen
+  const CW = 850, H = 700, W = t.size >= 64 ? 1500 : t.size >= 32 ? 1300 : 1000, s = CW / W;
+  const br = bracketHTML(t, { W, H, mode: 'full', centerW: 300, g: 20, maxCh: 96, maxFont: 28, hf: t.size >= 32 ? 22 : 20, maxCw: 330 });
   return `<div class="duo-col" data-game="${g}"><div class="ptitle">${gd.icon} ${esc(gd.short)} <small dir="auto">${esc(sub)}</small></div>
-    <div class="fx sm" style="--ffs:${fs}px;${dvwStyle(t, true)}grid-template-columns:1fr;grid-template-rows:repeat(${n},${rowH}px)">${rows}</div></div>`;
+    <div class="bwrap" style="width:${CW}px;height:${Math.ceil((H + 46) * s)}px"><div style="width:${W}px;transform:scale(${s});transform-origin:0 0">${br}</div></div></div>`;
 }
 function sceneDuo() { return `<div class="duo">${duoColumn('fc27')}${duoColumn('lol')}</div>`; }
 
 function bothScenes() {
   const out = ['duo'];
-  ['fc27', 'lol'].forEach(g => { const t = S.ts[g]; if (!t) return; scenesFor(t).forEach(s => { if (s !== 'now' && s !== 'fixtures') out.push(g + '/' + s); }); });
+  ['fc27', 'lol'].forEach(g => { const t = S.ts[g]; if (!t) return; scenesFor(t).forEach(s => { if (s === 'champion') out.push(g + '/' + s); }); });
   return out;
 }
 function pubCtx() {
