@@ -43,8 +43,14 @@ async function initStore() {
       if (S.sync !== 'error' || !S.ready) { S.sync = 'error'; S.ready = true; schedule(); }
     }
   };
+  /* poll gently to stay inside the free database quota: public screen 3s, admin 10s, paused while the tab is hidden */
+  const loop = async () => {
+    if (!document.hidden) await pull();
+    setTimeout(loop, S.mode === 'public' ? 3000 : 10000);
+  };
   await pull();
-  setInterval(pull, 2000);
+  setTimeout(loop, 3000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
 }
 
 function commit(t) {
