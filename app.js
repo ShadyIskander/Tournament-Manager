@@ -21,12 +21,8 @@ let pending = 0, saveQ = Promise.resolve();
 const tomb = {};
 
 async function initStore() {
-  const KEY = 'e7s-key';
   async function api(method, id, body) {
-    let key = localStorage.getItem(KEY) || '';
-    if (method !== 'GET' && !key) { key = prompt('Admin password') || ''; if (key) localStorage.setItem(KEY, key); }
-    const r = await fetch('/api/db' + (id ? '?id=' + id : ''), { method, headers: { 'Content-Type': 'application/json', 'x-admin-key': key }, body: body ? JSON.stringify(body) : undefined });
-    if (r.status === 401) { localStorage.removeItem(KEY); throw new Error('Wrong admin password'); }
+    const r = await fetch('/api/db' + (id ? '?id=' + id : ''), { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     if (!r.ok) throw new Error('Server error ' + r.status);
     return r.json();
   }
@@ -48,7 +44,7 @@ async function initStore() {
     }
   };
   await pull();
-  setInterval(pull, 3000);
+  setInterval(pull, 2000);
 }
 
 function commit(t) {
